@@ -1,0 +1,94 @@
+## Template used in multiple pipelines for v4 SPA Deployment
+
+jobs:
+  - job: BuildPackage
+    pool:
+      name: Azure Pipelines
+      vmImage: 'ubuntu-latest'
+    continueOnError: false
+    steps:
+      - task: NodeTool@0
+        inputs:
+          versionSpec: '14.x'
+          checkLatest: true
+        displayName: "Install Node.js"
+
+      - task: npmAuthenticate@0
+        displayName: "Authenticate Node.js"
+        inputs:
+          workingFile: .npmrc
+
+      - script: |
+          yarn install
+        displayName: "Install Node.js Dependancies"
+        retryCountOnTaskFailure: 2
+
+      - script: |
+          case $BUILD_SOURCEBRANCH in
+            refs/heads/instance/dev | refs/heads/instance/azuredev)
+              echo "dev"
+              echo "##vso[task.setvariable variable=buildconfig]dev"
+              ;;
+            refs/heads/instance/qa | refs/heads/instance/azureqa)
+              echo "qa"
+              echo "##vso[task.setvariable variable=buildconfig]qa"
+              ;;
+            refs/heads/instance/staging | refs/heads/instance/azurestg)
+              echo "staging"
+              echo "##vso[task.setvariable variable=buildconfig]staging"
+              ;;
+            refs/heads/main)
+              echo "production"
+              ;;
+            refs/heads/instance/azure)
+              echo "azure"
+              ;;
+            *)
+              echo "unknown"
+              exit 1
+              ;;
+          esac
+        displayName: "Set Build Config"
+        name: SetBuildConfig
+
+      - ${{ if or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/instance/azure')) }}: # @TODO: Change this to the correct branch
+
+        - script: |
+            mkdir dist
+            npm run build
+            # if [ -d "webfonts" ]; then
+            #   cp -R webfonts/* dist/fonts/ || :
+            # fi
+            if [ ! "$(ls -A dist)" ]; then
+              echo "Error: No files were created during the build process."
+              exit 1
+            fi
+          displayName: "Run Production Build"
+          
+      - ${{ else }}:
+
+        - script: |
+            mkdir dist
+            npm run build:$(buildconfig)
+            # if [ -d "webfonts" ]; then
+            #   cp -R webfonts/* dist/fonts/ || :
+            # fi
+            if [ ! "$(ls -A dist)" ]; then
+              echo "Error: No files were created during the build process."
+              exit 1
+            fi
+          displayName: "Run nonprod Build"
+
+      - task: CopyFiles@2
+        displayName: "Copy Files to: $(Build.ArtifactStagingDirectory)"
+        inputs:
+          SourceFolder: "$(Build.SourcesDirectory)"
+          Contents: |
+            dist/**/*
+          TargetFolder: "$(Build.ArtifactStagingDirectory)"
+
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: '$(Build.ArtifactStagingDirectory)'
+          artifact: '$(Build.Repository.Name)'
+          publishLocation: 'pipeline'

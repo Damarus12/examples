@@ -1,0 +1,26 @@
+parameters:
+  - name: Takedown
+    displayName: Takedown or deploy
+    type: string
+    default: Deploy
+    values:
+      - Deploy
+      - Takedown
+
+trigger:
+  - instance/*
+  - main
+
+resources:
+  repositories:
+    # @TODO: Change this to the main branch once the DevOps PR is merged
+    - repository: templates
+      type: git
+      name: DevOps/Misc.scripts
+      ref: instance/dev
+
+variables:
+  - group: cloudflare_variables
+
+stages:
+  - template: azurepipelines/SPA-Pages/spa-main-template.yml@templates

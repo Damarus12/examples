@@ -1,0 +1,111 @@
+# =========================================================================================================
+# This template is used to deploy to Azure environments based on the set tag.
+#
+# Every deployment is based on the same deployment steps, but the condition is used to determine if the deployment
+# should be executed or not.
+# =========================================================================================================
+jobs:
+  # ===================== Set environment variables ==========================================================
+  - job: setEnvData
+    displayName: "Get Project Data"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+      - checkout: templates
+      - download: none
+
+      - task: PowerShell@2
+        displayName: "Script: Query OpsCentral API"
+        name: setprojectvars
+        inputs:
+          filePath: "$(Pipeline.Workspace)/s/powershell/v4/Get-ProjectComponents.ps1"
+  # =========================================================================================================
+  - deployment: internalNonProd # must be unique
+    displayName: "Azure Deploy [Internal NonProd]" # Set proper env display name
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'internalNonProd') # This is the tag relating to the Env Resources
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-nonProd
+      resourceType: VirtualMachine
+      tags: "internalNonProd" # This is the tag relating to the Env Resources ($siteEnv in Get-ProjectComponents.ps1)
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 10
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+  # =========================================================================================================
+  - deployment: dev # Must be unique
+    displayName: "Azure Deploy [Dev]" # Set proper env display name
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'dev') # This is the tag relating to the Env Resources
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-nonProd # ADO Environment Name
+      resourceType: VirtualMachine
+      tags: "dev" # This is the tag relating to the Env Resources ($siteEnv in Get-ProjectComponents.ps1)
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 10
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+  # =========================================================================================================
+  - deployment: qa 
+    displayName: "Azure Deploy [QA]"
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'qa')
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-nonProd
+      resourceType: VirtualMachine
+      tags: "qa"
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 10
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+  # =========================================================================================================
+  - deployment: stg
+    displayName: "Azure Deploy [STG]"
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'stg')
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-nonProd
+      resourceType: VirtualMachine
+      tags: "stg"
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 10
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+# =============================================================================================================

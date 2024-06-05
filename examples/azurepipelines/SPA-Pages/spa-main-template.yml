@@ -1,0 +1,14 @@
+stages:
+########################################################################  
+- stage: Build
+  jobs:
+  - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/SPA-Pages/build-template.yml
+########################################################################
+- stage: Deploy
+  displayName: 'Wrangler Deploy'
+  condition: succeeded('Build')
+  variables:
+  - name: websitename
+    value: $[stageDependencies.Build.BuildPackage.outputs['Printvar.devhostname']]
+  jobs:
+  - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/SPA-Pages/wrangler-deploy.yml

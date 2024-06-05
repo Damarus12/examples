@@ -1,0 +1,34 @@
+# Azure pipelines multi-template multi-stage deployment script for IIS applications
+# This template is specifially for repositories that have multiple solution files and individual pipelines for each solution file
+parameters:
+  - name: Takedown
+    displayName: Takedown or deploy
+    type: string
+    default: Deploy
+    values:
+      - Deploy
+      - Takedown
+      - destroy&rebuild
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+      - instance/*
+  paths:
+    include:
+      - company.Portal/**
+
+resources:
+  repositories:
+    - repository: templates
+      type: git
+      name: DevOps/Misc.scripts
+      ref: instance/dev
+
+variables:
+  - group: Connection String Variables
+
+stages:
+  - template: azurepipelines/v4/legacyV4Systems/master-template.yml@templates

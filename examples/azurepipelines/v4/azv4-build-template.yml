@@ -1,0 +1,115 @@
+## Template used in multiple pipelines for v4 Deployment
+jobs:
+  - job: BuildPackage
+    # condition: eq(parameters['Takedown'], 'Deploy' )
+    pool:
+      name: Azure Pipelines
+      vmImage: "windows-latest"
+      demands:
+        - msbuild
+        - visualstudio
+    continueOnError: false
+    variables:
+      - name: buildPlatform
+        value: "Any CPU"
+      - name: solution
+        value: "**/*.sln"
+      - name: NUGET_PACKAGES
+        value: $(Pipeline.Workspace)/.nuget/packages
+
+    steps:
+      - task: PowerShell@2
+        displayName: "Set build configuration"
+        name: varbuildconfig
+        inputs:
+          targetType: "inline"
+          # ====================== Set Build configuration based on branch name
+          script: |
+            write-host "commit message is: $(Build.SourceVersionMessage)"
+            switch ($env:Build_SourceBranchName) {
+              {$_ -match 'main'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Release"  }
+              {$_ -match 'staging|azurestg'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Staging"  }
+              {$_ -match 'qa|azureqa'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]QA"  }
+              {$_ -match 'dev|azuredev'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Dev"  }
+              {$_ -eq 'azure'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Azure"  }
+              Default {"Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]"}
+            }
+
+      - task: replacetokens@5
+        inputs:
+          targetFiles: "**/*.config"
+          encoding: "auto"
+          tokenPattern: "rm"
+          writeBOM: true
+          actionOnMissing: "warn"
+          keepToken: false
+          actionOnNoFiles: "warn"
+          enableTransforms: false
+          enableRecursion: false
+          useLegacyPattern: false
+          enableTelemetry: true
+
+      - task: PowerShell@2
+        displayName: "Verify Build Config"
+        name: Printvar
+        inputs:
+          targetType: "inline"
+          script: |
+            $buildconfig = "$(varbuildconfig.buildConfiguration)"
+            Write-Host "Build Configuration is: $buildconfig"
+            if ([string]::IsNullOrEmpty($buildconfig)) {  Write-Host "##[warning] missing build config; exit 1" }
+
+      # =========================== Start Build =============================================
+      # - task: Cache@2
+      #   inputs:
+      #     key: 'nuget | "$(Agent.OS)" | $(Pipeline.Workspace)/**/packages.lock.json'
+      #     restoreKeys: |
+      #       nuget | "$(Agent.OS)"
+      #       nuget
+      #     path: $(NUGET_PACKAGES)
+      #   displayName: Cache NuGet packages
+
+      - task: ListVars@2
+        inputs:
+          sort: "Value"
+
+      - task: NuGetToolInstaller@1
+        displayName: "Use NuGet"
+
+      - task: NuGetCommand@2
+        displayName: "NuGet restore"
+        inputs:
+          feedsToUse: config
+          restoreSolution: "$(solution)"
+          nugetConfigPath: NuGet.config
+
+      - task: VSBuild@1
+        displayName: 'Build solution **\*.sln'
+        inputs:
+          solution: "$(solution)"
+          platform: "$(buildPlatform)"
+          configuration: "$(varbuildconfig.buildConfiguration)"
+          msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:AutoParameterizationWebConfigConnectionStrings=False /p:PackageLocation="$(build.artifactstagingdirectory)\\"'
+
+      # - task: VSTest@2
+      #   inputs:
+      #     platform: '$(buildPlatform)'
+      #     configuration: '$(buildConfiguration)'
+
+      - task: PowerShell@2
+        displayName: "List zip packages"
+        inputs:
+          targetType: "inline"
+          script: |
+            if(!(Get-ChildItem -path $(Build.ArtifactStagingDirectory) -filter *.zip)){
+              Write-Host "##[warning] No zip packages found"
+              exit 1
+            } else {
+              Get-ChildItem -path $(Build.ArtifactStagingDirectory) -filter *.zip
+            }
+      # =========================== Publish Artifact =============================================
+      - task: PublishPipelineArtifact@1
+        inputs:
+          targetPath: "$(Build.ArtifactStagingDirectory)"
+          artifact: "$(Build.Repository.Name)"
+          publishLocation: "pipeline"

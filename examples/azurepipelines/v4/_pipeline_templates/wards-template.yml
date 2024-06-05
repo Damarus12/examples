@@ -1,0 +1,33 @@
+# Azure pipelines multi-template multi-stage deployment script for IIS applications
+# This template is used at the root of the repository to trigger the deployment of the application
+parameters:
+  - name: Takedown
+    displayName: Takedown or deploy
+    type: string
+    default: Deploy
+    values:
+      - Deploy
+      - Takedown
+      - destroy&rebuild
+
+trigger:
+  batch: true
+  branches:
+    include:
+      - main
+      - instance/*
+
+resources:
+  repositories:
+    # TODO: REMOVE `ref: instance/dev` AFTER TESTING
+    - repository: templates
+      type: git
+      name: DevOps/Misc.scripts
+      ref: instance/dev
+
+variables:
+  - group: IIS-variables
+  - group: PurgeCDNvariables
+
+stages:
+  - template: azurepipelines/v4/azv4-master-template.yml@templates

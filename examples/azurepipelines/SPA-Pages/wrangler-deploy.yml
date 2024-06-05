@@ -1,0 +1,75 @@
+jobs:
+  # - job: waitForValidation
+  #   condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  #   displayName: Wait for external validation
+  #   pool: server
+  #   timeoutInMinutes: 4320 # job times out in 3 days
+  #   steps:
+  #   - task: ManualValidation@0
+  #     name: validate
+  #     timeoutInMinutes: 1440 # task times out in 1 day
+  #     inputs:
+  #       notifyUsers: |
+  #         user@company.com
+  #       instructions: 'Please validate the build configuration and resume'
+  #       onTimeout: 'resume'
+
+  - job: DeployArtifact
+    displayName: "Deploy artifact to worker site"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+      - checkout: templates
+      - download: none
+      - task: CmdLine@2
+        inputs:
+          script: |
+            echo "Structure of work folder of this pipeline:"
+            tree $(Pipeline.Workspace)
+
+      - task: replacetokens@5
+        inputs:
+          targetFiles: "**/*.ps1"
+          encoding: "auto"
+          tokenPattern: "rm"
+          writeBOM: true
+          actionOnMissing: "warn"
+          keepToken: false
+          actionOnNoFiles: "warn"
+          enableTransforms: false
+          enableRecursion: false
+          useLegacyPattern: false
+          enableTelemetry: true
+
+      - task: PowerShell@2
+        retryCountOnTaskFailure: 1
+        displayName: "Script: Verify Pages Project"
+        name: verifyproject
+        inputs:
+          filePath: "$(Pipeline.Workspace)/s/powershell/Cloudflare/Get-cfPagesProjects.ps1"
+
+      - task: DownloadPipelineArtifact@2
+        inputs:
+          buildType: "current"
+          targetPath: "$(Pipeline.Workspace)"
+      - task: Npm@1
+        displayName: "Install Wrangler"
+        inputs:
+          command: "custom"
+          customCommand: "install wrangler -g"
+
+      - ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/main') }}:
+          - task: CmdLine@2
+            retryCountOnTaskFailure: 1
+            displayName: "Wrangler publish PROD"
+            inputs:
+              script: "CLOUDFLARE_ACCOUNT_ID=$(cfAccountId) CLOUDFLARE_API_TOKEN=$(cfWorkersApiToken) wrangler pages deploy dist --project-name $(verifyproject.pagesProjectName)"
+              workingDirectory: "$(Pipeline.Workspace)/$(Build.Repository.Name)"
+
+      - ${{ else }}:
+          - task: CmdLine@2
+            retryCountOnTaskFailure: 1
+            displayName: "Wrangler publish non-PROD"
+            inputs:
+              script: "CLOUDFLARE_ACCOUNT_ID=$(cfAccountId) CLOUDFLARE_API_TOKEN=$(cfWorkersApiToken) wrangler pages deploy dist --branch $(Build.SourceBranchName) --project-name $(verifyproject.pagesProjectName)"
+              workingDirectory: "$(Pipeline.Workspace)/$(Build.Repository.Name)"

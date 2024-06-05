@@ -1,0 +1,124 @@
+jobs:
+  - job: BuildPackage
+    pool:
+      name: Azure Pipelines
+      vmImage: "windows-latest"
+      demands:
+        - msbuild
+        - visualstudio
+    continueOnError: false
+
+    variables:
+      - name: buildPlatform
+        value: "Any CPU"
+
+    steps:
+      - task: PowerShell@2
+        displayName: "Script: Set target solution"
+        name: varSolution
+        inputs:
+          targetType: "inline"
+          # ====================== Set Target solution ======================
+          script: |
+            write-host "commit message is: $(Build.SourceVersionMessage)"
+            write-host "Pipline name: $(Build.DefinitionName)"
+            if($env:Build_DefinitionName -match 'RedactedCompany'){
+              switch ($env:Build_DefinitionName) {
+                # Scheduler Solutions
+                {$_ -match 'RedactedCompany Dashboard'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.Dashboard.sln"  }
+                {$_ -match 'RedactedCompany Email Scheduler'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.EmailScheduler.sln"  }
+                {$_ -match 'RedactedCompany Scheduler'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.Scheduler.sln"  }
+                {$_ -match 'RedactedCompany Third Party Scheduler'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.ThirdPartyScheduler.sln"  }
+                # Web Solutions
+                {$_ -match 'RedactedCompany Resubmit'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.Resubmit.sln"  }
+                {$_ -match 'RedactedCompany Info'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.Info.sln"  }
+                # Api Solutions
+                {$_ -match 'RedactedCompany.UserStatus.Api'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompanyScheduler.UserStatusApi.sln"  }
+                # Default
+                Default { Write-Host "##[warning] Could not find a .sln file that matches $env:Build_DefinitionName"; exit 1}
+              }
+            } else{
+              switch ($env:Build_DefinitionName) {
+                {$_ -match 'portal'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompany.Portal.sln"  }
+                {$_ -match 'fulfillment'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompany.Fulfillment.sln"  }
+                {$_ -match 'extracts'} { "Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]RedactedCompany.Portal.Extracts.sln"  }
+                Default {"Write-Host ##vso[task.setvariable variable=buildSolution;isOutput=true]**/*.sln"}
+              }
+            }
+
+      - task: PowerShell@2
+        displayName: "Set build configuration"
+        name: varbuildconfig
+        inputs:
+          targetType: "inline"
+          # ====================== Set Build configuration based on branch name ======================
+          script: |
+            write-host "commit message is: $(Build.SourceVersionMessage)"
+            write-host "branch name is: $(Build.SourceBranchName)"
+            switch ($env:Build_SourceBranchName) {
+              {$_ -match 'main|azure'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Release"  }
+              {$_ -match 'staging|azurestg'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Staging"  }
+              {$_ -match 'qa|azureqa'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]QA"  }
+              {$_ -match 'dev|azuredev'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Dev"  }
+              # {$_ -eq 'azure'} { "Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]Release"  }
+              Default {"Write-Host ##vso[task.setvariable variable=buildConfiguration;isOutput=true]"}
+            }
+
+      - task: PowerShell@2
+        displayName: "Verify Build Config"
+        name: Printvar
+        inputs:
+          targetType: "inline"
+          script: |
+            $buildconfig = "$(varbuildconfig.buildConfiguration)"
+            Write-Host "Build Configuration is: $buildconfig"
+            if ([string]::IsNullOrEmpty($buildconfig)) {  Write-Host "##[warning] missing build config"; exit 1 }
+
+      - task: replacetokens@5
+        inputs:
+          targetFiles: "**/*.config"
+          encoding: "auto"
+          tokenPattern: "rm"
+          writeBOM: true
+          actionOnMissing: "warn"
+          keepToken: false
+          actionOnNoFiles: "warn"
+          enableTransforms: false
+          enableRecursion: false
+          useLegacyPattern: false
+          enableTelemetry: true
+
+      # =========================== Start Build =============================================
+      - task: ListVars@2
+        displayName: "List Pipeline Variables"
+        inputs:
+          sort: "Value"
+
+      - task: NuGetToolInstaller@1
+
+      - task: NuGetCommand@2
+        displayName: "NuGet restore"
+        inputs:
+          feedsToUse: config
+          restoreSolution: "$(varSolution.buildSolution)"
+          nugetConfigPath: NuGet.config
+
+      - task: VSBuild@1
+        displayName: "Build solution"
+        inputs:
+          solution: "$(varSolution.buildSolution)"
+          platform: "$(buildPlatform)"
+          configuration: "$(varbuildconfig.buildConfiguration)"
+          msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:AutoParameterizationWebConfigConnectionStrings=False /p:PackageLocation="$(build.artifactstagingdirectory)\\"'
+
+      #      - task: VSTest@2
+      #        inputs:
+      #          platform: '$(buildPlatform)'
+      #          configuration: '$(buildConfiguration)'
+
+      - task: PublishPipelineArtifact@1
+        displayName: "Publish Pipeline Artifact"
+        inputs:
+          targetPath: $(Build.ArtifactStagingDirectory)
+          artifact: $(Build.Repository.Name)
+          publishLocation: "pipeline"

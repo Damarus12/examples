@@ -1,0 +1,18 @@
+# Azure pipelines mulit-stage deployment script for IIS applications
+
+stages:
+  # =========================== STAGE: Build ===============================================
+  - stage: Build
+    jobs:
+      - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/azv4-build-template.yml
+  # =========================== STAGE: Azure CI ==========================================
+  - stage: AzureDeployment
+    displayName: "Azure CI/CD"
+    dependsOn:
+      - Build
+    condition: succeeded('Build')
+    jobs:
+      - ${{ if or(eq(variables['Build.SourceBranch'], 'refs/heads/main'), eq(variables['Build.SourceBranch'], 'refs/heads/instance/azure')) }}: # @TODO: Remove Azure branch after migration
+          - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/azv4-template-prod.yml
+      - ${{ else }}:
+          - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/azv4-template-nonProd.yml

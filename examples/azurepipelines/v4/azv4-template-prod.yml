@@ -1,0 +1,89 @@
+# =========================================================================================================
+# This template is used to deploy to Azure environments based on the set tag.
+#
+# Every deployment is based on the same deployment steps, but the condition is used to determine if the deployment
+# should be executed or not.
+# =========================================================================================================
+jobs:
+  # ===================== Set environment variables ==========================================================
+  - job: setEnvData
+    displayName: "Get Project Data"
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+      - checkout: templates
+      - download: none
+
+      - task: PowerShell@2
+        displayName: "Script: Query OpsCentral API"
+        name: setprojectvars
+        inputs:
+          filePath: "$(Pipeline.Workspace)/s/powershell/v4/Get-ProjectComponents.ps1"
+  # =========================================================================================================
+  - deployment: internal
+    displayName: "Azure Deploy [Internal]"
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'internal')
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-Prod
+      resourceType: VirtualMachine
+      tags: "internal"
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 5
+
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+  # =========================================================================================================
+  - deployment: shared # must be unique
+    displayName: "Azure Deploy [Shared]" # set proper env name
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'shared') # change this to the tag you want to deploy
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-Prod
+      resourceType: VirtualMachine
+      tags: "shared" # change this to the tag you want to deploy
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 5
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+  # =========================================================================================================
+  - deployment: dedicated # must be unique
+    displayName: "Azure Deploy [Dedicated]" # set proper env name
+    condition: eq(dependencies.setEnvData.outputs['setprojectvars.siteEnv'], 'dedicated') # change this to the tag you want to deploy
+    dependsOn: setEnvData
+    variables:
+      siteUrl: $[dependencies.setEnvData.outputs['setprojectvars.siteUrl']]
+    environment:
+      name: Azure-v4-Prod
+      resourceType: VirtualMachine
+      tags: "dedicated" # change this to the tag you want to deploy
+    pool:
+      vmImage: "windows-latest"
+    continueOnError: false
+    timeoutInMinutes: 5
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - template: ${{variables['System.DefaultWorkingDirectory']}}/azurepipelines/v4/deployTemplates/deploy-steps.yml
+              parameters:
+                websitename: $(siteUrl)
+# =========================================================================================================

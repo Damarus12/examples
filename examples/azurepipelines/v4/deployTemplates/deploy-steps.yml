@@ -1,0 +1,118 @@
+# Deployment steps for Prod/non-prod environments. See the prod/non-prod job templates for refrence.
+parameters:
+  - name: websitename
+    type: string
+    default: ""
+
+steps:
+  - checkout: templates
+  - download: none
+  # ====================== Download Artifacts ======================
+  - task: DownloadPipelineArtifact@2
+    inputs:
+      buildType: "current"
+      artifactName: "$(Build.Repository.Name)"
+      itemPattern: "*.zip"
+      targetPath: "$(Pipeline.Workspace)"
+
+  # ====================== Check Package ======================
+  - task: PowerShell@2
+    displayName: "Script: Verify Artifact Name"
+    name: checkwebpackage
+    inputs:
+      targetType: "inline"
+      script: |
+        $webPackage = Get-ChildItem -filter *.zip -path $(Pipeline.Workspace) -recurse | ? {$_ -match '(?i)^(?!.*\b(api|auth|scheduler|amoe)\b).*\.zip$' } | select -first 1 -expandproperty name
+        Write-Host "webpackge: $webPackage"
+        if($webPackage) {
+          $webPackagePath = "$(Pipeline.Workspace)/$webPackage"
+          Write-Host "##vso[task.setvariable variable=webPackagePath]$webPackagePath"
+          Write-Host "##vso[task.setvariable variable=web]true"
+        }
+
+        $apiPackage = Get-ChildItem -filter *.zip -path $(Pipeline.Workspace) -recurse | ? {$_ -match '(?i)^(.*?\.API\.zip|api.zip)$' } | select -first 1 -expandproperty name
+        if($apiPackage) {
+          $apiPackagePath = "$(Pipeline.Workspace)/$apiPackage"
+          Write-Host "##vso[task.setvariable variable=apiPackagePath]$apiPackagePath"
+          Write-Host "##vso[task.setvariable variable=api]true"
+        }
+
+        $authPackage = Get-ChildItem -filter *.zip -path $(Pipeline.Workspace) -recurse | ? {$_ -match '(?i)^(.*?\.auth\.zip|auth.zip)$' } | select -first 1 -expandproperty name
+        if($authPackage) {
+          $authPackagePath = "$(Pipeline.Workspace)/$authPackage"
+          Write-Host "##vso[task.setvariable variable=authPackagePath]$authPackagePath"
+          Write-Host "##vso[task.setvariable variable=auth]true"
+        }
+
+        $schedulerPackage = Get-ChildItem -filter *.zip -path $(Pipeline.Workspace) -recurse | ? {$_ -match '(?i)^(.*?\.scheduler\.zip|scheduler.zip)$' } | select -first 1 -expandproperty name
+        if($schedulerPackage) {
+          $schedulerPackagePath = "$(Pipeline.Workspace)/$schedulerPackage"
+          Write-Host "##vso[task.setvariable variable=schedulerPackagePath]$schedulerPackagePath"
+          Write-Host "##vso[task.setvariable variable=scheduler]true"
+        }
+
+  - task: ListVars@2
+    displayName: "List Pipeline Variables"
+    inputs:
+      sort: "Value"
+
+  # ====================== Verify Web Application ======================
+  - task: PowerShell@2
+    retryCountOnTaskFailure: 1
+    displayName: "Script: Verify Web Application"
+    name: verifysite
+    inputs:
+      filePath: '$(Pipeline.Workspace)\s\powershell\v4\Get-Azv4Site.ps1'
+      arguments: "-siteURL ${{ parameters.websitename }}"
+
+  # ====================== Deploy Artifacts ======================
+
+  - task: IISWebAppDeploymentOnMachineGroup@0
+    retryCountOnTaskFailure: 1
+    condition: eq(variables.web, 'true')
+    displayName: "Deploy Web Package"
+    inputs:
+      WebSiteName: ${{ parameters.websitename }}
+      Package: "$(webPackagePath)"
+      RemoveAdditionalFilesFlag: true
+      TakeAppOfflineFlag: true
+
+  - task: IISWebAppDeploymentOnMachineGroup@0
+    retryCountOnTaskFailure: 1
+    condition: eq(variables.api, 'true')
+    displayName: "Deploy API Package"
+    inputs:
+      VirtualApplication: "api"
+      WebSiteName: ${{ parameters.websitename }}
+      Package: "$(apiPackagePath)"
+      RemoveAdditionalFilesFlag: true
+
+  - task: IISWebAppDeploymentOnMachineGroup@0
+    retryCountOnTaskFailure: 1
+    condition: eq(variables.auth, 'true')
+    displayName: "Deploy Auth Package"
+    inputs:
+      VirtualApplication: "auth"
+      WebSiteName: ${{ parameters.websitename }}
+      Package: "$(authPackagePath)"
+      RemoveAdditionalFilesFlag: true
+
+  - task: IISWebAppDeploymentOnMachineGroup@0
+    retryCountOnTaskFailure: 1
+    condition: eq(variables.scheduler, 'true')
+    displayName: "Deploy Scheduler Package"
+    inputs:
+      VirtualApplication: "scheduler"
+      WebSiteName: ${{ parameters.websitename }}
+      Package: "$(schedulerPackagePath)"
+      RemoveAdditionalFilesFlag: true
+      TakeAppOfflineFlag: false
+  # ====================== Verify EventLog Source =================
+  - task: PowerShell@2
+    retryCountOnTaskFailure: 1
+    displayName: "Script: Verify EventLog Source"
+    name: verifyEventLog
+    inputs:
+      filePath: '$(Pipeline.Workspace)\s\powershell\v4\Get-EventLogSource.ps1'
+      arguments: "-sitePath $(webPhysicalPath)"
+# ====================== End Deployment ===========================
